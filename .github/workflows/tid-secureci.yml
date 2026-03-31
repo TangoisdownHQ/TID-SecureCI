@@ -382,7 +382,7 @@ jobs:
 
       - name: Run Trivy filesystem scan
         if: ${{ inputs.enable_trivy }}
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.33.1
         continue-on-error: ${{ !inputs.enforce }}
         with:
           scan-type: fs
@@ -395,7 +395,7 @@ jobs:
 
       - name: Run Trivy image scan
         if: ${{ inputs.enable_trivy && inputs.image_ref != '' }}
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.33.1
         continue-on-error: ${{ !inputs.enforce }}
         with:
           image-ref: ${{ inputs.image_ref }}
@@ -460,7 +460,7 @@ jobs:
           path: ${{ env.SCAN_DIR }}
           format: spdx-json
           artifact-name: tid-secureci-sbom.spdx.json
-          dependency-snapshot: true
+          dependency-snapshot: false
 
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@v0
