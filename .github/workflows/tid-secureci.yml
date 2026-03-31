@@ -213,16 +213,25 @@ jobs:
       - name: Run Semgrep
         if: ${{ inputs.enable_semgrep }}
         shell: bash
-        continue-on-error: ${{ !inputs.enforce }}
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.semgrep_app_token }}
         run: |
+          set +e
           semgrep scan \
             --config auto \
             --config "${RUNNER_TEMP}/semgrep-ml.yml" \
             --sarif \
             --output "${RESULTS_DIR}/semgrep.sarif" \
             "${SCAN_DIR}"
+          status=$?
+          set -e
+
+          if [ "${status}" -ne 0 ] && [ "${{ inputs.enforce }}" != "true" ]; then
+            echo "Semgrep reported findings; continuing because enforce=false."
+            exit 0
+          fi
+
+          exit "${status}"
 
       - name: Install Gitleaks
         if: ${{ inputs.enable_gitleaks }}
@@ -239,14 +248,23 @@ jobs:
       - name: Run Gitleaks
         if: ${{ inputs.enable_gitleaks }}
         shell: bash
-        continue-on-error: ${{ !inputs.enforce }}
         run: |
+          set +e
           gitleaks git \
             --source "${SCAN_DIR}" \
             --no-banner \
             --redact \
             --report-format sarif \
             --report-path "${RESULTS_DIR}/gitleaks.sarif"
+          status=$?
+          set -e
+
+          if [ "${status}" -ne 0 ] && [ "${{ inputs.enforce }}" != "true" ]; then
+            echo "Gitleaks reported findings; continuing because enforce=false."
+            exit 0
+          fi
+
+          exit "${status}"
 
       - name: Upload Semgrep SARIF
         if: ${{ always() && inputs.enable_semgrep && hashFiles('results/semgrep.sarif') != '' }}
@@ -307,7 +325,6 @@ jobs:
       - name: Run OSV-Scanner
         if: ${{ inputs.enable_osv }}
         shell: bash
-        continue-on-error: ${{ !inputs.enforce }}
         run: |
           set +e
           osv-scanner scan source \
@@ -320,6 +337,11 @@ jobs:
 
           if [ "${status}" -eq 128 ]; then
             echo "OSV-Scanner did not find lockfiles or manifests to analyze."
+            exit 0
+          fi
+
+          if [ "${status}" -ne 0 ] && [ "${{ inputs.enforce }}" != "true" ]; then
+            echo "OSV-Scanner reported findings; continuing because enforce=false."
             exit 0
           fi
 
@@ -372,18 +394,26 @@ jobs:
       - name: Run Checkov
         if: ${{ inputs.enable_checkov }}
         shell: bash
-        continue-on-error: ${{ !inputs.enforce }}
         run: |
+          set +e
           checkov \
             -d "${SCAN_DIR}" \
             --framework terraform,kubernetes,dockerfile,secrets,github_actions,helm,arm,bicep,cloudformation,sca_package \
             --download-external-modules true \
             -o sarif > "${RESULTS_DIR}/checkov.sarif"
+          status=$?
+          set -e
+
+          if [ "${status}" -ne 0 ] && [ "${{ inputs.enforce }}" != "true" ]; then
+            echo "Checkov reported findings; continuing because enforce=false."
+            exit 0
+          fi
+
+          exit "${status}"
 
       - name: Run Trivy filesystem scan
         if: ${{ inputs.enable_trivy }}
         uses: aquasecurity/trivy-action@v0.33.1
-        continue-on-error: ${{ !inputs.enforce }}
         with:
           scan-type: fs
           scan-ref: target
@@ -392,17 +422,18 @@ jobs:
           ignore-unfixed: true
           format: sarif
           output: results/trivy-fs.sarif
+          exit-code: ${{ inputs.enforce && '1' || '0' }}
 
       - name: Run Trivy image scan
         if: ${{ inputs.enable_trivy && inputs.image_ref != '' }}
         uses: aquasecurity/trivy-action@v0.33.1
-        continue-on-error: ${{ !inputs.enforce }}
         with:
           image-ref: ${{ inputs.image_ref }}
           severity: ${{ inputs.fail_severity }}
           ignore-unfixed: true
           format: sarif
           output: results/trivy-image.sarif
+          exit-code: ${{ inputs.enforce && '1' || '0' }}
 
       - name: Upload Checkov SARIF
         if: ${{ always() && inputs.enable_checkov && hashFiles('results/checkov.sarif') != '' }}
@@ -481,6 +512,220 @@ jobs:
       - sbom
     if: ${{ always() }}
     steps:
+      - name: Download scan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: tid-secureci-*
+          merge-multiple: true
+
+      - name: Build report assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p report
+
+          count_sarif() {
+            local file="$1"
+            if [ -f "${file}" ]; then
+              jq '[.runs[]?.results[]?] | length' "${file}"
+            else
+              echo 0
+            fi
+          }
+
+          semgrep_count=$(count_sarif artifacts/semgrep.sarif)
+          gitleaks_count=$(count_sarif artifacts/gitleaks.sarif)
+          osv_count=$(count_sarif artifacts/osv.sarif)
+          checkov_count=$(count_sarif artifacts/checkov.sarif)
+          trivy_fs_count=$(count_sarif artifacts/trivy-fs.sarif)
+          trivy_image_count=$(count_sarif artifacts/trivy-image.sarif)
+          total_count=$((semgrep_count + gitleaks_count + osv_count + checkov_count + trivy_fs_count + trivy_image_count))
+
+          cat > report/report.md <<EOF
+          # TID-SecureCI Report
+
+          Repository: \`${{ needs.prepare.outputs.repository }}\`
+          Ref: \`${{ needs.prepare.outputs.ref }}\`
+          Enforce mode: \`${{ inputs.enforce }}\`
+          Severity gate: \`${{ inputs.fail_severity }}\`
+
+          ## Visual Flow
+
+          \`\`\`mermaid
+          flowchart LR
+            A[Source Repo] --> B[Semgrep + Gitleaks]
+            A --> C[OSV Dependency Scan]
+            A --> D[Checkov + Trivy]
+            A --> E[SBOM Generation]
+            B --> F[GitHub Code Scanning]
+            C --> F
+            D --> F
+            B --> G[Workflow Artifacts]
+            C --> G
+            D --> G
+            E --> G
+          \`\`\`
+
+          ## Findings Snapshot
+
+          | Scanner | Findings in artifact |
+          | --- | ---: |
+          | Semgrep | ${semgrep_count} |
+          | Gitleaks | ${gitleaks_count} |
+          | OSV-Scanner | ${osv_count} |
+          | Checkov | ${checkov_count} |
+          | Trivy FS | ${trivy_fs_count} |
+          | Trivy Image | ${trivy_image_count} |
+          | Total | ${total_count} |
+
+          ## Job Status
+
+          | Job | Result |
+          | --- | --- |
+          | Code And Secrets | \`${{ needs.code-and-secrets.result }}\` |
+          | Dependency And Supply Chain | \`${{ needs.dependency-supply-chain.result }}\` |
+          | Infrastructure And Images | \`${{ needs.infrastructure-and-images.result }}\` |
+          | SBOM | \`${{ needs.sbom.result }}\` |
+
+          ## Where To Look
+
+          1. Open **Security -> Code scanning alerts** for line-level findings.
+          2. Open **Actions -> this run -> Artifacts** for raw SARIF and SBOM downloads.
+          3. Use the SBOM artifacts for inventory, license, and supply-chain review.
+
+          ## Reading The Results
+
+          - Semgrep surfaces code patterns that may lead to security issues or insecure DOM handling.
+          - Gitleaks checks for exposed credentials or tokens in git history.
+          - OSV maps lockfiles and manifests to published dependency vulnerabilities.
+          - Checkov and Trivy cover infrastructure, misconfigurations, secrets, and package risk.
+          - SBOM artifacts show what is in the build even when no alert is raised.
+          EOF
+
+          cat > report/report.html <<EOF
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>TID-SecureCI Report</title>
+            <style>
+              :root {
+                color-scheme: light;
+                --bg: #f4f7f2;
+                --panel: #ffffff;
+                --ink: #102418;
+                --muted: #486153;
+                --line: #d6e3d7;
+                --accent: #14532d;
+                --warn: #92400e;
+              }
+              body {
+                margin: 0;
+                font-family: ui-sans-serif, system-ui, sans-serif;
+                background: linear-gradient(180deg, #eef6ed 0%, var(--bg) 100%);
+                color: var(--ink);
+              }
+              .wrap {
+                max-width: 980px;
+                margin: 0 auto;
+                padding: 32px 20px 48px;
+              }
+              .hero, .panel {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                border-radius: 18px;
+                box-shadow: 0 12px 30px rgba(16, 36, 24, 0.06);
+                padding: 24px;
+                margin-bottom: 18px;
+              }
+              h1, h2 {
+                margin: 0 0 12px;
+              }
+              .sub {
+                color: var(--muted);
+                margin-bottom: 8px;
+              }
+              .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 12px;
+                margin-top: 18px;
+              }
+              .card {
+                border: 1px solid var(--line);
+                border-radius: 14px;
+                padding: 14px;
+                background: #fbfdf9;
+              }
+              .label {
+                font-size: 12px;
+                text-transform: uppercase;
+                color: var(--muted);
+                letter-spacing: 0.08em;
+              }
+              .value {
+                font-size: 28px;
+                font-weight: 700;
+                margin-top: 8px;
+              }
+              ol, ul {
+                margin: 10px 0 0 20px;
+                padding: 0;
+              }
+              code {
+                background: #eef6ed;
+                padding: 2px 6px;
+                border-radius: 6px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="wrap">
+              <section class="hero">
+                <h1>TID-SecureCI Report</h1>
+                <div class="sub">Repository: ${{ needs.prepare.outputs.repository }}</div>
+                <div class="sub">Ref: ${{ needs.prepare.outputs.ref }}</div>
+                <div class="sub">Enforce mode: ${{ inputs.enforce }} | Severity gate: ${{ inputs.fail_severity }}</div>
+                <div class="grid">
+                  <div class="card"><div class="label">Semgrep</div><div class="value">${semgrep_count}</div></div>
+                  <div class="card"><div class="label">Gitleaks</div><div class="value">${gitleaks_count}</div></div>
+                  <div class="card"><div class="label">OSV</div><div class="value">${osv_count}</div></div>
+                  <div class="card"><div class="label">Checkov</div><div class="value">${checkov_count}</div></div>
+                  <div class="card"><div class="label">Trivy FS</div><div class="value">${trivy_fs_count}</div></div>
+                  <div class="card"><div class="label">Total</div><div class="value">${total_count}</div></div>
+                </div>
+              </section>
+              <section class="panel">
+                <h2>How To Read This Run</h2>
+                <ol>
+                  <li>Open <code>Security -&gt; Code scanning alerts</code> for line-level issues.</li>
+                  <li>Open <code>Actions -&gt; this run -&gt; Artifacts</code> for SARIF and SBOM files.</li>
+                  <li>Use SPDX and CycloneDX SBOM files for dependency inventory and supply-chain review.</li>
+                </ol>
+              </section>
+              <section class="panel">
+                <h2>Scanner Coverage</h2>
+                <ul>
+                  <li>Semgrep checks application code and custom AI/ML guardrails.</li>
+                  <li>Gitleaks checks git history for secrets.</li>
+                  <li>OSV checks manifests and lockfiles against vulnerability advisories.</li>
+                  <li>Checkov and Trivy check infrastructure, misconfigurations, and package risk.</li>
+                </ul>
+              </section>
+            </div>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload summary report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tid-secureci-report
+          path: report/
+
       - name: Publish summary
         shell: bash
         run: |
@@ -492,11 +737,40 @@ jobs:
             echo "- Enforce mode: \`${{ inputs.enforce }}\`"
             echo "- Severity gate: \`${{ inputs.fail_severity }}\`"
             echo
-            echo "Review findings in:"
-            echo "- Security -> Code scanning alerts"
-            echo "- Actions -> Workflow artifacts"
+            echo "### Scan Map"
             echo
-            echo "Recommended GitHub-native settings for private repos:"
+            echo '```mermaid'
+            echo 'flowchart LR'
+            echo '  A[Source Repo] --> B[Semgrep and Gitleaks]'
+            echo '  A --> C[OSV Dependency Scan]'
+            echo '  A --> D[Checkov and Trivy]'
+            echo '  A --> E[SBOM Generation]'
+            echo '  B --> F[GitHub Code Scanning]'
+            echo '  C --> F'
+            echo '  D --> F'
+            echo '  B --> G[Workflow Artifacts]'
+            echo '  C --> G'
+            echo '  D --> G'
+            echo '  E --> G'
+            echo '```'
+            echo
+            echo "### What To Review"
+            echo
+            echo "1. Open **Security -> Code scanning alerts** for issue-by-issue findings."
+            echo "2. Open **Actions -> this run -> Artifacts** for raw SARIF, SBOMs, and the downloadable HTML/Markdown report."
+            echo "3. Use the SBOM files to review the software inventory even when alerts are quiet."
+            echo
+            echo "### Job Results"
+            echo
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "| Code And Secrets | \`${{ needs.code-and-secrets.result }}\` |"
+            echo "| Dependency And Supply Chain | \`${{ needs.dependency-supply-chain.result }}\` |"
+            echo "| Infrastructure And Images | \`${{ needs.infrastructure-and-images.result }}\` |"
+            echo "| SBOM | \`${{ needs.sbom.result }}\` |"
+            echo
+            echo "### Recommended GitHub Settings"
+            echo
             echo "- CodeQL default setup"
             echo "- Dependabot alerts and security updates"
             echo "- Secret scanning and push protection"
