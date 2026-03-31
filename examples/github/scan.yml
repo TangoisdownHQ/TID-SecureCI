@@ -15,10 +15,9 @@ permissions:
 
 jobs:
   secureci:
-    uses: YOUR-ORG/TID-SecureCI/.github/workflows/tid-secureci.yml@main
+    uses: YOUR-ORG/TID-SecureCI/.github/workflows/tid-secureci.yml@master
     secrets: inherit
     with:
       enforce: false
       fail_severity: HIGH,CRITICAL
       image_ref: ghcr.io/YOUR-ORG/YOUR-APP:${{ github.sha }}
-

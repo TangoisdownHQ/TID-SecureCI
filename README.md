@@ -51,7 +51,7 @@ permissions:
 
 jobs:
   secureci:
-    uses: YOUR-ORG/TID-SecureCI/.github/workflows/tid-secureci.yml@main
+    uses: YOUR-ORG/TID-SecureCI/.github/workflows/tid-secureci.yml@master
     secrets: inherit
     with:
       enforce: false
@@ -62,6 +62,7 @@ jobs:
 ### Notes
 
 - Start with `enforce: false` so you can tune noise before making the workflow blocking.
+- Pin the reusable workflow to a branch or tag that actually exists in the SecureCI repo. The current default branch here is `master`.
 - If you scan a different private repository than the caller, pass `target_repository`, `target_ref`, and a `checkout_token`.
 - If your app does not build a container, leave `image_ref` empty.
 
@@ -117,5 +118,4 @@ bash scripts/generate_sbom.sh ./target ./sbom
 4. Run with `enforce: false` for a few cycles.
 5. Fix false positives and real issues.
 6. Turn on `enforce: true`.
-7. Add branch protection so the workflow must pass before merge.
-
+7. Add branch protection and require both `Secure Scan / secureci` and `Validate` before merge.
