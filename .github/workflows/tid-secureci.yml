@@ -528,7 +528,7 @@ jobs:
 
           count_sarif() {
             local file="$1"
-            if [ -f "${file}" ]; then
+            if [ -f "${file}" ] && jq empty "${file}" >/dev/null 2>&1; then
               jq '[.runs[]?.results[]?] | length' "${file}"
             else
               echo 0
