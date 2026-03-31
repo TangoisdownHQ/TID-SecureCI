@@ -252,11 +252,11 @@ jobs:
         run: |
           set +e
           gitleaks git \
-            --source "${SCAN_DIR}" \
             --no-banner \
             --redact \
             --report-format sarif \
-            --report-path "${RESULTS_DIR}/gitleaks.sarif"
+            --report-path "${RESULTS_DIR}/gitleaks.sarif" \
+            "${SCAN_DIR}"
           status=$?
           set -e
 
