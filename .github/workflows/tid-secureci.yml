@@ -75,7 +75,7 @@ env:
   RESULTS_DIR: results
   GITLEAKS_VERSION: 8.24.2
   OSV_SCANNER_VERSION: 2.3.0
-  TRIVY_VERSION: 0.67.2
+  TRIVY_VERSION: 0.69.3
 
 jobs:
   prepare:
