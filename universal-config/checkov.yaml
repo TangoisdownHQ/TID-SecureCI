@@ -1,0 +1,15 @@
+framework:
+  - terraform
+  - kubernetes
+  - dockerfile
+  - secrets
+  - github_actions
+  - helm
+  - arm
+  - bicep
+  - cloudformation
+  - sca_package
+  - sca_image
+download-external-modules: true
+quiet: true
+

@@ -1,0 +1,11 @@
+results/
+sbom/
+target/
+tools/
+*.sarif
+*.spdx.json
+*.cdx.json
+syft
+gitleaks
+osv-scanner
+

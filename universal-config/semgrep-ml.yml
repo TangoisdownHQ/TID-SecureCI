@@ -1,0 +1,47 @@
+rules:
+  - id: tid-llm-trust-remote-code
+    message: "Avoid `trust_remote_code=True` when loading external models."
+    severity: ERROR
+    languages: [python]
+    pattern: trust_remote_code=True
+    metadata:
+      category: security
+  - id: tid-python-pickle-load
+    message: "`pickle.load` on untrusted data is unsafe."
+    severity: ERROR
+    languages: [python]
+    pattern: pickle.load(...)
+    metadata:
+      category: security
+  - id: tid-python-joblib-load
+    message: "`joblib.load` can deserialize untrusted code."
+    severity: WARNING
+    languages: [python]
+    pattern: joblib.load(...)
+    metadata:
+      category: security
+  - id: tid-python-torch-load
+    message: "Review `torch.load` inputs for untrusted model artifacts."
+    severity: WARNING
+    languages: [python]
+    pattern: torch.load(...)
+    metadata:
+      category: security
+  - id: tid-python-subprocess-shell
+    message: "`shell=True` can allow command injection."
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: subprocess.$FUNC(..., shell=True, ...)
+    metadata:
+      category: security
+  - id: tid-js-child-process-exec
+    message: "Review dynamic shell execution in child_process."
+    severity: WARNING
+    languages: [javascript, typescript]
+    patterns:
+      - pattern-either:
+          - pattern: exec(...)
+          - pattern: execSync(...)
+    metadata:
+      category: security

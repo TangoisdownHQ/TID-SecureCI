@@ -1,0 +1,11 @@
+format: sarif
+ignore-unfixed: true
+scanners:
+  - vuln
+  - misconfig
+  - secret
+  - license
+severity:
+  - HIGH
+  - CRITICAL
+

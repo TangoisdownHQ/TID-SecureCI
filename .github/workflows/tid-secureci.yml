@@ -1,0 +1,503 @@
+name: TID-SecureCI
+
+on:
+  workflow_call:
+    inputs:
+      target_repository:
+        description: "owner/repo to scan. Defaults to the caller repository."
+        required: false
+        type: string
+        default: ""
+      target_ref:
+        description: "Git ref, branch, or SHA to scan. Defaults to the caller SHA."
+        required: false
+        type: string
+        default: ""
+      image_ref:
+        description: "Optional container image to scan with Trivy."
+        required: false
+        type: string
+        default: ""
+      fail_severity:
+        description: "Severity threshold for blocking scans."
+        required: false
+        type: string
+        default: "HIGH,CRITICAL"
+      enforce:
+        description: "Fail the workflow on findings. Start with false, then turn on after tuning."
+        required: false
+        type: boolean
+        default: false
+      enable_semgrep:
+        required: false
+        type: boolean
+        default: true
+      enable_gitleaks:
+        required: false
+        type: boolean
+        default: true
+      enable_osv:
+        required: false
+        type: boolean
+        default: true
+      enable_checkov:
+        required: false
+        type: boolean
+        default: true
+      enable_trivy:
+        required: false
+        type: boolean
+        default: true
+      enable_sbom:
+        required: false
+        type: boolean
+        default: true
+      upload_artifacts:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      checkout_token:
+        required: false
+      semgrep_app_token:
+        required: false
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: tid-secureci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  SCAN_DIR: target
+  RESULTS_DIR: results
+  GITLEAKS_VERSION: 8.24.2
+  OSV_SCANNER_VERSION: 2.3.0
+
+jobs:
+  prepare:
+    name: Prepare Target
+    runs-on: ubuntu-latest
+    outputs:
+      repository: ${{ steps.resolve.outputs.repository }}
+      ref: ${{ steps.resolve.outputs.ref }}
+    steps:
+      - id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          repository="${{ inputs.target_repository }}"
+          ref="${{ inputs.target_ref }}"
+
+          if [ -z "${repository}" ]; then
+            repository="${{ github.repository }}"
+          fi
+
+          if [ -z "${ref}" ]; then
+            ref="${{ github.sha }}"
+          fi
+
+          echo "repository=${repository}" >> "${GITHUB_OUTPUT}"
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.prepare.outputs.repository }}
+          ref: ${{ needs.prepare.outputs.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.checkout_token || github.token }}
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        continue-on-error: ${{ !inputs.enforce }}
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+          allow-licenses: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Python-2.0,Python-2.0.1,MPL-2.0
+
+  code-and-secrets:
+    name: Code And Secrets
+    runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.prepare.outputs.repository }}
+          ref: ${{ needs.prepare.outputs.ref }}
+          path: ${{ env.SCAN_DIR }}
+          fetch-depth: 0
+          token: ${{ secrets.checkout_token || github.token }}
+
+      - name: Prepare results directory
+        shell: bash
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Install Semgrep
+        if: ${{ inputs.enable_semgrep }}
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install semgrep
+
+      - name: Create custom Semgrep rules
+        if: ${{ inputs.enable_semgrep }}
+        shell: bash
+        run: |
+          cat > "${RUNNER_TEMP}/semgrep-ml.yml" <<'YAML'
+          rules:
+            - id: tid-llm-trust-remote-code
+              message: "Avoid `trust_remote_code=True` when loading external models."
+              severity: ERROR
+              languages: [python]
+              pattern: trust_remote_code=True
+              metadata:
+                category: security
+            - id: tid-python-pickle-load
+              message: "`pickle.load` on untrusted data is unsafe."
+              severity: ERROR
+              languages: [python]
+              pattern: pickle.load(...)
+              metadata:
+                category: security
+            - id: tid-python-joblib-load
+              message: "`joblib.load` can deserialize untrusted code."
+              severity: WARNING
+              languages: [python]
+              pattern: joblib.load(...)
+              metadata:
+                category: security
+            - id: tid-python-torch-load
+              message: "Review `torch.load` inputs for untrusted model artifacts."
+              severity: WARNING
+              languages: [python]
+              pattern: torch.load(...)
+              metadata:
+                category: security
+            - id: tid-python-subprocess-shell
+              message: "`shell=True` can allow command injection."
+              severity: ERROR
+              languages: [python]
+              patterns:
+                - pattern: subprocess.$FUNC(..., shell=True, ...)
+              metadata:
+                category: security
+            - id: tid-js-child-process-exec
+              message: "Review dynamic shell execution in child_process."
+              severity: WARNING
+              languages: [javascript, typescript]
+              patterns:
+                - pattern-either:
+                    - pattern: exec(...)
+                    - pattern: execSync(...)
+              metadata:
+                category: security
+          YAML
+
+      - name: Run Semgrep
+        if: ${{ inputs.enable_semgrep }}
+        shell: bash
+        continue-on-error: ${{ !inputs.enforce }}
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.semgrep_app_token }}
+        run: |
+          semgrep scan \
+            --config auto \
+            --config "${RUNNER_TEMP}/semgrep-ml.yml" \
+            --sarif \
+            --output "${RESULTS_DIR}/semgrep.sarif" \
+            "${SCAN_DIR}"
+
+      - name: Install Gitleaks
+        if: ${{ inputs.enable_gitleaks }}
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o "${RUNNER_TEMP}/gitleaks.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/gitleaks.tar.gz" -C "${RUNNER_TEMP}"
+          install "${RUNNER_TEMP}/gitleaks" "${RUNNER_TEMP}/bin/gitleaks"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: Run Gitleaks
+        if: ${{ inputs.enable_gitleaks }}
+        shell: bash
+        continue-on-error: ${{ !inputs.enforce }}
+        run: |
+          gitleaks git \
+            --source "${SCAN_DIR}" \
+            --no-banner \
+            --redact \
+            --report-format sarif \
+            --report-path "${RESULTS_DIR}/gitleaks.sarif"
+
+      - name: Upload Semgrep SARIF
+        if: ${{ always() && inputs.enable_semgrep && hashFiles('results/semgrep.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/semgrep.sarif
+          category: semgrep
+          checkout_path: target
+
+      - name: Upload Gitleaks SARIF
+        if: ${{ always() && inputs.enable_gitleaks && hashFiles('results/gitleaks.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/gitleaks.sarif
+          category: gitleaks
+          checkout_path: target
+
+      - name: Upload code scan artifacts
+        if: ${{ always() && inputs.upload_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tid-secureci-code-and-secrets
+          if-no-files-found: ignore
+          path: results/
+
+  dependency-supply-chain:
+    name: Dependency And Supply Chain
+    runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.prepare.outputs.repository }}
+          ref: ${{ needs.prepare.outputs.ref }}
+          path: ${{ env.SCAN_DIR }}
+          fetch-depth: 0
+          token: ${{ secrets.checkout_token || github.token }}
+
+      - name: Prepare results directory
+        shell: bash
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Install OSV-Scanner
+        if: ${{ inputs.enable_osv }}
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          curl -fsSL \
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" \
+            -o "${RUNNER_TEMP}/osv-scanner"
+          install "${RUNNER_TEMP}/osv-scanner" "${RUNNER_TEMP}/bin/osv-scanner"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: Run OSV-Scanner
+        if: ${{ inputs.enable_osv }}
+        shell: bash
+        continue-on-error: ${{ !inputs.enforce }}
+        run: |
+          set +e
+          osv-scanner scan source \
+            -r \
+            --format sarif \
+            --output "${RESULTS_DIR}/osv.sarif" \
+            "${SCAN_DIR}"
+          status=$?
+          set -e
+
+          if [ "${status}" -eq 128 ]; then
+            echo "OSV-Scanner did not find lockfiles or manifests to analyze."
+            exit 0
+          fi
+
+          exit "${status}"
+
+      - name: Upload OSV SARIF
+        if: ${{ always() && inputs.enable_osv && hashFiles('results/osv.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/osv.sarif
+          category: osv-scanner
+          checkout_path: target
+
+      - name: Upload dependency scan artifacts
+        if: ${{ always() && inputs.upload_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tid-secureci-dependency-scan
+          if-no-files-found: ignore
+          path: results/
+
+  infrastructure-and-images:
+    name: Infrastructure And Images
+    runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.prepare.outputs.repository }}
+          ref: ${{ needs.prepare.outputs.ref }}
+          path: ${{ env.SCAN_DIR }}
+          fetch-depth: 0
+          token: ${{ secrets.checkout_token || github.token }}
+
+      - name: Prepare results directory
+        shell: bash
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Install Checkov
+        if: ${{ inputs.enable_checkov }}
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install checkov
+
+      - name: Run Checkov
+        if: ${{ inputs.enable_checkov }}
+        shell: bash
+        continue-on-error: ${{ !inputs.enforce }}
+        run: |
+          checkov \
+            -d "${SCAN_DIR}" \
+            --framework terraform,kubernetes,dockerfile,secrets,github_actions,helm,arm,bicep,cloudformation,sca_package \
+            --download-external-modules true \
+            -o sarif > "${RESULTS_DIR}/checkov.sarif"
+
+      - name: Run Trivy filesystem scan
+        if: ${{ inputs.enable_trivy }}
+        uses: aquasecurity/trivy-action@0.33.1
+        continue-on-error: ${{ !inputs.enforce }}
+        with:
+          scan-type: fs
+          scan-ref: target
+          scanners: vuln,misconfig,secret,license
+          severity: ${{ inputs.fail_severity }}
+          ignore-unfixed: true
+          format: sarif
+          output: results/trivy-fs.sarif
+
+      - name: Run Trivy image scan
+        if: ${{ inputs.enable_trivy && inputs.image_ref != '' }}
+        uses: aquasecurity/trivy-action@0.33.1
+        continue-on-error: ${{ !inputs.enforce }}
+        with:
+          image-ref: ${{ inputs.image_ref }}
+          severity: ${{ inputs.fail_severity }}
+          ignore-unfixed: true
+          format: sarif
+          output: results/trivy-image.sarif
+
+      - name: Upload Checkov SARIF
+        if: ${{ always() && inputs.enable_checkov && hashFiles('results/checkov.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/checkov.sarif
+          category: checkov
+          checkout_path: target
+
+      - name: Upload Trivy filesystem SARIF
+        if: ${{ always() && inputs.enable_trivy && hashFiles('results/trivy-fs.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/trivy-fs.sarif
+          category: trivy-fs
+          checkout_path: target
+
+      - name: Upload Trivy image SARIF
+        if: ${{ always() && inputs.enable_trivy && hashFiles('results/trivy-image.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/trivy-image.sarif
+          category: trivy-image
+          checkout_path: target
+
+      - name: Upload infrastructure scan artifacts
+        if: ${{ always() && inputs.upload_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tid-secureci-infrastructure
+          if-no-files-found: ignore
+          path: results/
+
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: ${{ inputs.enable_sbom }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.prepare.outputs.repository }}
+          ref: ${{ needs.prepare.outputs.ref }}
+          path: ${{ env.SCAN_DIR }}
+          fetch-depth: 0
+          token: ${{ secrets.checkout_token || github.token }}
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: ${{ env.SCAN_DIR }}
+          format: spdx-json
+          artifact-name: tid-secureci-sbom.spdx.json
+          dependency-snapshot: true
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: ${{ env.SCAN_DIR }}
+          format: cyclonedx-json
+          artifact-name: tid-secureci-sbom.cdx.json
+          dependency-snapshot: false
+
+  summary:
+    name: Summary
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - code-and-secrets
+      - dependency-supply-chain
+      - infrastructure-and-images
+      - sbom
+    if: ${{ always() }}
+    steps:
+      - name: Publish summary
+        shell: bash
+        run: |
+          {
+            echo "## TID-SecureCI"
+            echo
+            echo "- Repository: \`${{ needs.prepare.outputs.repository }}\`"
+            echo "- Ref: \`${{ needs.prepare.outputs.ref }}\`"
+            echo "- Enforce mode: \`${{ inputs.enforce }}\`"
+            echo "- Severity gate: \`${{ inputs.fail_severity }}\`"
+            echo
+            echo "Review findings in:"
+            echo "- Security -> Code scanning alerts"
+            echo "- Actions -> Workflow artifacts"
+            echo
+            echo "Recommended GitHub-native settings for private repos:"
+            echo "- CodeQL default setup"
+            echo "- Dependabot alerts and security updates"
+            echo "- Secret scanning and push protection"
+          } >> "${GITHUB_STEP_SUMMARY}"

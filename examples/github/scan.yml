@@ -1,0 +1,24 @@
+name: Secure Scan
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  schedule:
+    - cron: "21 4 * * *"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secureci:
+    uses: YOUR-ORG/TID-SecureCI/.github/workflows/tid-secureci.yml@main
+    secrets: inherit
+    with:
+      enforce: false
+      fail_severity: HIGH,CRITICAL
+      image_ref: ghcr.io/YOUR-ORG/YOUR-APP:${{ github.sha }}
+
