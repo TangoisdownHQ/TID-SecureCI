@@ -75,6 +75,7 @@ env:
   RESULTS_DIR: results
   GITLEAKS_VERSION: 8.24.2
   OSV_SCANNER_VERSION: 2.3.0
+  TRIVY_VERSION: 0.67.2
 
 jobs:
   prepare:
@@ -391,6 +392,15 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install checkov
 
+      - name: Install Trivy
+        if: ${{ inputs.enable_trivy }}
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b "${RUNNER_TEMP}/bin" "v${TRIVY_VERSION}"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
       - name: Run Checkov
         if: ${{ inputs.enable_checkov }}
         shell: bash
@@ -400,7 +410,8 @@ jobs:
             -d "${SCAN_DIR}" \
             --framework terraform,kubernetes,dockerfile,secrets,github_actions,helm,arm,bicep,cloudformation,sca_package \
             --download-external-modules true \
-            -o sarif > "${RESULTS_DIR}/checkov.sarif"
+            -o sarif \
+            --output-file-path "${RESULTS_DIR}/checkov.sarif"
           status=$?
           set -e
 
@@ -413,27 +424,28 @@ jobs:
 
       - name: Run Trivy filesystem scan
         if: ${{ inputs.enable_trivy }}
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: fs
-          scan-ref: target
-          scanners: vuln,misconfig,secret,license
-          severity: ${{ inputs.fail_severity }}
-          ignore-unfixed: true
-          format: sarif
-          output: results/trivy-fs.sarif
-          exit-code: ${{ inputs.enforce && '1' || '0' }}
+        shell: bash
+        run: |
+          trivy fs \
+            --scanners vuln,misconfig,secret,license \
+            --severity "${{ inputs.fail_severity }}" \
+            --ignore-unfixed \
+            --format sarif \
+            --output "${RESULTS_DIR}/trivy-fs.sarif" \
+            --exit-code ${{ inputs.enforce && '1' || '0' }} \
+            "${SCAN_DIR}"
 
       - name: Run Trivy image scan
         if: ${{ inputs.enable_trivy && inputs.image_ref != '' }}
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          image-ref: ${{ inputs.image_ref }}
-          severity: ${{ inputs.fail_severity }}
-          ignore-unfixed: true
-          format: sarif
-          output: results/trivy-image.sarif
-          exit-code: ${{ inputs.enforce && '1' || '0' }}
+        shell: bash
+        run: |
+          trivy image \
+            --severity "${{ inputs.fail_severity }}" \
+            --ignore-unfixed \
+            --format sarif \
+            --output "${RESULTS_DIR}/trivy-image.sarif" \
+            --exit-code ${{ inputs.enforce && '1' || '0' }} \
+            "${{ inputs.image_ref }}"
 
       - name: Upload Checkov SARIF
         if: ${{ always() && inputs.enable_checkov && hashFiles('results/checkov.sarif') != '' }}
