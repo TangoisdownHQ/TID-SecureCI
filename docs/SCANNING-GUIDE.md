@@ -22,7 +22,7 @@ When a scan finishes you receive, for the exact commit that was scanned:
 
 ## How it works (one paragraph)
 
-TID-SecureCI lives in **one** private repository (`TangoisdownHQ/TID-SecureCI`)
+TID-SecureCI lives in **one** repository (`TIDHQ-NETWORK/TID-SecureCI`)
 and exposes a **reusable workflow**. Your app repository adds a tiny **caller
 workflow** that says "run TID-SecureCI against me." On each trigger, the pipeline
 checks out the target code, runs several independent scanners in parallel,
@@ -55,7 +55,7 @@ it scans itself on every push and pull request.
 ## Step 2 — Add the caller workflow to your app
 
 Create `.github/workflows/scan.yml` in your **app** repository. Replace
-`YOUR-ORG` with your GitHub org/user (`TangoisdownHQ`), and adjust the image line
+`YOUR-ORG` with your GitHub org (`TIDHQ-NETWORK`), and adjust the image line
 or delete it if your app does not build a container image.
 
 ```yaml
@@ -75,14 +75,14 @@ permissions:
 
 jobs:
   secureci:
-    uses: TangoisdownHQ/TID-SecureCI/.github/workflows/tid-secureci.yml@master
+    uses: TIDHQ-NETWORK/TID-SecureCI/.github/workflows/tid-secureci.yml@master
     secrets: inherit        # passes SMTP/email secrets through to the scan
     with:
       enforce: false                       # report only; do not fail the build (yet)
       fail_severity: HIGH,CRITICAL         # which severities count as blocking
       report_recipient: you@example.com    # email this scan's report here
       report_name: My App Security Scan    # title on the report cover page
-      # image_ref: ghcr.io/TangoisdownHQ/my-app:${{ github.sha }}  # only if you build an image
+      # image_ref: ghcr.io/TIDHQ-NETWORK/my-app:${{ github.sha }}  # only if you build an image
 ```
 
 A ready-made copy lives at [examples/github/scan.yml](../examples/github/scan.yml).
@@ -162,7 +162,7 @@ token that can read it:
 
 ```yaml
     with:
-      target_repository: TangoisdownHQ/some-other-app
+      target_repository: TIDHQ-NETWORK/some-other-app
       target_ref: main
     secrets:
       checkout_token: ${{ secrets.CROSS_REPO_READ_TOKEN }}

@@ -16,7 +16,7 @@ emailed to them, plus alerts in the repo's Security tab.
    ```yaml
    jobs:
      secureci:
-       uses: TangoisdownHQ/TID-SecureCI/.github/workflows/tid-secureci.yml@master
+       uses: TIDHQ-NETWORK/TID-SecureCI/.github/workflows/tid-secureci.yml@master
        secrets: inherit
        with:
          enforce: false
