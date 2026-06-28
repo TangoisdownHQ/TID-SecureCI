@@ -660,7 +660,7 @@ jobs:
             | (if $kind == "osv" then "https://osv.dev/vulnerability/" + $rule
                 elif $path != "" then "https://github.com/" + $repo + "/blob/" + $ref + "/" + $path + (if $line > 0 then "#L" + ($line|tostring) else "" end)
                 else "" end) as $url
-            | "| " + $scanner + " | " + $level + " | \`" + $rule + "\` | " + (if $loc == "" then " " else $loc end) + " | " + $msg + " | " + (if $url == "" then " " else ("[review](" + $url + ")") end) + " |"
+            | "| " + $scanner + " | " + $level + " | `" + $rule + "` | " + (if $loc == "" then " " else $loc end) + " | " + $msg + " | " + (if $url == "" then " " else ("[review](" + $url + ")") end) + " |"
           '
 
           : > report/findings_html.frag
