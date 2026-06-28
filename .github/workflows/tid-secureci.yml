@@ -125,7 +125,10 @@ jobs:
             repository="${{ github.repository }}"
           fi
 
-          if [ -z "${ref}" ]; then
+          # Only default the ref to the caller's commit when self-scanning.
+          # For a remote target the caller SHA is not a ref in that repo, so
+          # leave it blank and let checkout use the target's default branch.
+          if [ -z "${ref}" ] && [ "${repository}" = "${{ github.repository }}" ]; then
             ref="${{ github.sha }}"
           fi
 
