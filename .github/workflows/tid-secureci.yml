@@ -554,9 +554,19 @@ jobs:
       - infrastructure-and-images
       - sbom
     if: ${{ always() }}
-    env:
-      MAIL_ENABLED: ${{ secrets.smtp_server != '' && secrets.report_owner != '' }}
     steps:
+      - name: Determine whether email is configured
+        shell: bash
+        env:
+          SMTP_SERVER: ${{ secrets.smtp_server }}
+          REPORT_OWNER: ${{ secrets.report_owner }}
+        run: |
+          if [ -n "${SMTP_SERVER}" ] && [ -n "${REPORT_OWNER}" ]; then
+            echo "MAIL_ENABLED=true" >> "$GITHUB_ENV"
+          else
+            echo "MAIL_ENABLED=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Download scan artifacts
         uses: actions/download-artifact@v4
         with:
