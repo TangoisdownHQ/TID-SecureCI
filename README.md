@@ -4,6 +4,34 @@ Private reusable security pipeline for GitHub repositories.
 
 TID-SecureCI is built to sit in one private GitHub repo and scan other private app repos through a reusable workflow. The pipeline is tuned for broad coverage instead of one scanner pretending to do everything.
 
+## Scan Your App In Three Steps
+
+Anyone with access can point this at a GitHub app and get a full security report —
+emailed to them, plus alerts in the repo's Security tab.
+
+1. **Add a caller workflow** to your app repo at `.github/workflows/scan.yml`
+   (copy [examples/github/scan.yml](examples/github/scan.yml) and set
+   `report_recipient` to your email):
+
+   ```yaml
+   jobs:
+     secureci:
+       uses: TangoisdownHQ/TID-SecureCI/.github/workflows/tid-secureci.yml@master
+       secrets: inherit
+       with:
+         enforce: false
+         report_recipient: you@example.com
+   ```
+2. **Configure email once** (org or repo secrets) so reports can be sent —
+   see [docs/EMAIL-SETUP.md](docs/EMAIL-SETUP.md).
+3. **Push, open a PR, or run it manually.** When the scan finishes you get an
+   emailed report, code-scanning alerts in **Security**, and downloadable
+   artifacts.
+
+New to this? The full walkthrough — including how to scan another repo, read the
+report, and understand vulnerabilities and severity — is in
+[docs/SCANNING-GUIDE.md](docs/SCANNING-GUIDE.md).
+
 ## What It Scans
 
 - Semgrep for multi-language SAST plus custom AI/ML guardrails
@@ -82,15 +110,73 @@ jobs:
 | `enable_trivy` | `true` | Enable filesystem and image scanning |
 | `enable_sbom` | `true` | Generate SPDX and CycloneDX SBOMs |
 | `upload_artifacts` | `true` | Upload raw reports as workflow artifacts |
+| `report_recipient` | owner address | Email address for this scan's report |
+| `report_name` | `Application Security Scan Report` | Cover-page title |
 
 ## Results
 
 You will get:
 
-- SARIF alerts in the GitHub Security tab
-- workflow artifacts for raw scanner output
+- SARIF alerts in the GitHub Security tab (`Security -> Code scanning alerts`)
+- workflow artifacts for raw scanner output (`Actions -> the run -> Artifacts`)
+- the rendered HTML/Markdown summary report in the `tid-secureci-report` artifact
+- a findings table written to the run summary page
 - SPDX and CycloneDX SBOM artifacts
 - dependency review feedback on pull requests
+- an optional emailed report (see below)
+
+## Email Reports
+
+On every run the `summary` job builds a branded report — a **TIDHQ.NETWORK cover
+page**, a **preface**, and **numbered sections** — then emails the HTML body with
+`report.html`, `report.md`, and the raw SARIF/SBOM files attached. The email is
+sent only when SMTP is configured; otherwise the step is skipped and everything
+else runs unchanged.
+
+### Where reports go
+
+- Each scan emails its report to the caller's `report_recipient` input.
+- If a caller does not set `report_recipient`, the report goes to the TIDHQ owner
+  address (`report_owner` secret).
+- The TIDHQ owner address is **BCC'd on every report from other callers**, so you
+  keep a copy of all scans for your records.
+
+### Secrets
+
+Set these on the SecureCI repo (or pass them through `secrets: inherit`):
+
+| Secret | Required | Purpose |
+| --- | --- | --- |
+| `smtp_server` | yes | SMTP host — enables email when set. Proton: `smtp.protonmail.ch` |
+| `report_owner` | yes | TIDHQ owner address — default recipient + BCC. Enables email when set |
+| `smtp_username` | yes | SMTP user. Proton: your full Proton address |
+| `smtp_password` | yes | SMTP password. Proton: the SMTP submission **token** |
+| `smtp_port` | no | SMTP port, defaults to `587` (STARTTLS) |
+| `mail_from` | no | From address, defaults to `smtp_username`. Proton: must match the token's address |
+
+Email is sent only when both `smtp_server` and `report_owner` are present.
+
+### Inputs
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `report_recipient` | owner address | Address this scan's report is sent to |
+| `report_name` | `Application Security Scan Report` | Title on the cover page |
+
+Full step-by-step instructions live in [docs/EMAIL-SETUP.md](docs/EMAIL-SETUP.md).
+
+### Proton setup
+
+Proton Bridge does **not** work in CI. You must use Proton's **SMTP submission**,
+available on paid Proton Mail / Business plans:
+
+1. In Proton, go to `Settings -> Mail -> IMAP/SMTP` and create an **SMTP
+   submission token**.
+2. Set the secrets: `smtp_server=smtp.protonmail.ch`, `smtp_port=587`,
+   `smtp_username=<your Proton address>`, `smtp_password=<the token>`,
+   `mail_from=<your Proton address>`, `report_owner=<your Proton address>`.
+3. All mail is sent **from** your Proton address regardless of recipient, which is
+   correct: TIDHQ delivers each report to the user who ran the scan.
 
 ## Local Helpers
 
@@ -119,3 +205,20 @@ bash scripts/generate_sbom.sh ./target ./sbom
 5. Fix false positives and real issues.
 6. Turn on `enforce: true`.
 7. Add branch protection and require both `Secure Scan / secureci` and `Validate` before merge.
+
+## Glossary
+
+- **Reusable workflow** — a GitHub Actions workflow other repos call with `uses:`. TID-SecureCI is one.
+- **Caller workflow** — the small `scan.yml` in your app repo that invokes the reusable workflow.
+- **SAST** — Static Application Security Testing: scanning source code for flaws without running it (Semgrep).
+- **SARIF** — the standard JSON format scanners emit so findings show up in the GitHub Security tab.
+- **SBOM** — Software Bill of Materials: a full inventory of components in a build (SPDX + CycloneDX here).
+- **CVE** — a public identifier for a specific known vulnerability (e.g. `CVE-2024-12345`).
+- **Severity** — graded impact/exploitability of a finding: CRITICAL, HIGH, MEDIUM, LOW.
+- **Secret** — a committed credential (API key, token, password, private key) that should never be in git.
+- **IaC** — Infrastructure as Code (Terraform, Kubernetes, Dockerfiles); scanned by Checkov and Trivy.
+- **Enforce mode** — whether findings fail the workflow (`enforce: true`) or are report-only (`enforce: false`).
+- **Severity gate (`fail_severity`)** — which severities count as blocking when enforce is on.
+- **SMTP submission token** — the Proton-issued password used to send report email from CI.
+
+A fuller glossary and a complete how-to live in [docs/SCANNING-GUIDE.md](docs/SCANNING-GUIDE.md).
