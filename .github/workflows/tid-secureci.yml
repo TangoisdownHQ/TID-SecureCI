@@ -599,6 +599,8 @@ jobs:
 
       - name: Build report assets
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -627,6 +629,36 @@ jobs:
           link_repo="${{ needs.prepare.outputs.repository }}"
           link_ref="${{ needs.prepare.outputs.ref }}"
           [ -z "${link_ref}" ] && link_ref="HEAD"
+
+          # ---- Repository metadata (best-effort; public repos via the API) ----
+          repo_json="$(gh api "repos/${link_repo}" 2>/dev/null || echo '{}')"
+          rj() { printf '%s' "${repo_json}" | jq -r "$1" 2>/dev/null; }
+          repo_url="$(rj '.html_url // ""')"
+          [ -z "${repo_url}" ] && repo_url="https://github.com/${link_repo}"
+          repo_desc="$(rj '(.description // "—")')"
+          repo_homepage="$(rj '(.homepage // "")')"
+          repo_lang="$(rj '(.language // "—")')"
+          repo_branch="$(rj '(.default_branch // "—")')"
+          repo_license="$(rj '(.license.spdx_id // .license.name // "—")')"
+          repo_stars="$(rj '(.stargazers_count // 0)')"
+          repo_forks="$(rj '(.forks_count // 0)')"
+          repo_issues="$(rj '(.open_issues_count // 0)')"
+          repo_updated="$(rj '(.pushed_at // .updated_at // "—")')"
+          repo_topics="$(rj '((.topics // []) | join(", "))')"
+          [ -z "${repo_topics}" ] && repo_topics="—"
+          repo_visibility="$(rj 'if .private == true then "private" elif .private == false then "public" else "—" end')"
+          # HTML-escaped variants for free text
+          repo_desc_html="$(printf '%s' "${repo_json}" | jq -r '(.description // "—") | @html' 2>/dev/null)"
+          repo_topics_html="$(printf '%s' "${repo_json}" | jq -r '((.topics // []) | join(", ")) | @html' 2>/dev/null)"
+          [ -z "${repo_desc_html}" ] && repo_desc_html="—"
+          [ -z "${repo_topics_html}" ] && repo_topics_html="—"
+          # Markdown-safe description (escape pipes)
+          repo_desc_md="$(printf '%s' "${repo_desc}" | sed 's/|/\\|/g')"
+          homepage_md="—"; homepage_html="&mdash;"
+          if [ -n "${repo_homepage}" ]; then
+            homepage_md="[${repo_homepage}](${repo_homepage})"
+            homepage_html="<a href=\"${repo_homepage}\">${repo_homepage}</a>"
+          fi
 
           html_jq='
             .runs[]?.results[]? as $r
@@ -734,15 +766,26 @@ jobs:
 
           ---------------------------------------------------------------
 
-          ## 1. Scan Overview
+          ## 1. Scan & Repository Overview
 
           | Field | Value |
           | --- | --- |
-          | Repository | \`${{ needs.prepare.outputs.repository }}\` |
-          | Ref | \`${{ needs.prepare.outputs.ref }}\` |
+          | Repository | [${{ needs.prepare.outputs.repository }}](${repo_url}) |
+          | Description | ${repo_desc_md} |
+          | Ref scanned | \`${{ needs.prepare.outputs.ref }}\` |
+          | Default branch | \`${repo_branch}\` |
+          | Primary language | ${repo_lang} |
+          | Topics | ${repo_topics} |
+          | Visibility | ${repo_visibility} |
+          | Stars / Forks / Open issues | ${repo_stars} / ${repo_forks} / ${repo_issues} |
+          | License | ${repo_license} |
+          | Homepage | ${homepage_md} |
+          | Last pushed | ${repo_updated} |
           | Trigger | \`${trigger}\` |
           | Enforce mode | \`${{ inputs.enforce }}\` |
           | Severity gate | \`${{ inputs.fail_severity }}\` |
+
+          **Quick links:** [Code](${repo_url}) &middot; [Issues](${repo_url}/issues) &middot; [Pull requests](${repo_url}/pulls) &middot; [Commits](${repo_url}/commits) &middot; [Security](${repo_url}/security) &middot; [Dependency graph](${repo_url}/network/dependencies)
 
           ## 2. Findings Snapshot
 
@@ -909,9 +952,26 @@ jobs:
               .value { font-size: 28px; font-weight: 700; margin-top: 8px; }
               ol, ul { margin: 10px 0 0 20px; padding: 0; }
               code { background: #eef6ed; padding: 2px 6px; border-radius: 6px; }
-              table.findings { font-size: 13px; }
-              table.findings td { vertical-align: top; }
-              table.findings td:nth-child(5) { color: var(--muted); }
+              .panel { overflow: hidden; }
+              .table-scroll { width: 100%; overflow-x: auto; }
+              table.findings { font-size: 13px; table-layout: fixed; }
+              table.findings th, table.findings td {
+                vertical-align: top;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+              }
+              table.findings code {
+                white-space: normal;
+                overflow-wrap: anywhere;
+                word-break: break-all;
+                background: #eef6ed;
+              }
+              table.findings th:nth-child(1), table.findings td:nth-child(1) { width: 9%; }
+              table.findings th:nth-child(2), table.findings td:nth-child(2) { width: 9%; }
+              table.findings th:nth-child(3), table.findings td:nth-child(3) { width: 22%; }
+              table.findings th:nth-child(4), table.findings td:nth-child(4) { width: 16%; }
+              table.findings th:nth-child(5), table.findings td:nth-child(5) { width: 35%; color: var(--muted); }
+              table.findings th:nth-child(6), table.findings td:nth-child(6) { width: 9%; }
               .sev {
                 display: inline-block;
                 font-size: 11px;
@@ -975,14 +1035,32 @@ jobs:
               </section>
 
               <section class="panel">
-                <h2>1. Scan Overview</h2>
+                <h2>1. Scan &amp; Repository Overview</h2>
                 <table>
-                  <tr><th>Repository</th><td>${{ needs.prepare.outputs.repository }}</td></tr>
-                  <tr><th>Ref</th><td>${{ needs.prepare.outputs.ref }}</td></tr>
+                  <tr><th>Repository</th><td><a href="${repo_url}">${{ needs.prepare.outputs.repository }}</a></td></tr>
+                  <tr><th>Description</th><td>${repo_desc_html}</td></tr>
+                  <tr><th>Ref scanned</th><td><code>${{ needs.prepare.outputs.ref }}</code></td></tr>
+                  <tr><th>Default branch</th><td><code>${repo_branch}</code></td></tr>
+                  <tr><th>Primary language</th><td>${repo_lang}</td></tr>
+                  <tr><th>Topics</th><td>${repo_topics_html}</td></tr>
+                  <tr><th>Visibility</th><td>${repo_visibility}</td></tr>
+                  <tr><th>Stars / Forks / Open issues</th><td>${repo_stars} / ${repo_forks} / ${repo_issues}</td></tr>
+                  <tr><th>License</th><td>${repo_license}</td></tr>
+                  <tr><th>Homepage</th><td>${homepage_html}</td></tr>
+                  <tr><th>Last pushed</th><td>${repo_updated}</td></tr>
                   <tr><th>Trigger</th><td>${trigger}</td></tr>
                   <tr><th>Enforce mode</th><td>${{ inputs.enforce }}</td></tr>
                   <tr><th>Severity gate</th><td>${{ inputs.fail_severity }}</td></tr>
                 </table>
+                <p class="sub" style="margin-top:14px;">
+                  <strong>Quick links:</strong>
+                  <a href="${repo_url}">Code</a> &middot;
+                  <a href="${repo_url}/issues">Issues</a> &middot;
+                  <a href="${repo_url}/pulls">Pull requests</a> &middot;
+                  <a href="${repo_url}/commits">Commits</a> &middot;
+                  <a href="${repo_url}/security">Security</a> &middot;
+                  <a href="${repo_url}/network/dependencies">Dependency graph</a>
+                </p>
               </section>
 
               <section class="panel">
@@ -1001,14 +1079,16 @@ jobs:
                 <h2>3. Detailed Findings</h2>
                 <p class="sub">Every issue each scanner reported, with a link to review it in
                 context &mdash; the source line on GitHub, or the advisory for a vulnerable dependency.</p>
-                <table class="findings">
-                  <thead>
-                    <tr><th>Scanner</th><th>Severity</th><th>Rule</th><th>Location</th><th>Detail</th><th>Review</th></tr>
-                  </thead>
-                  <tbody>
-                    ${FINDINGS_HTML}
-                  </tbody>
-                </table>
+                <div class="table-scroll">
+                  <table class="findings">
+                    <thead>
+                      <tr><th>Scanner</th><th>Severity</th><th>Rule</th><th>Location</th><th>Detail</th><th>Review</th></tr>
+                    </thead>
+                    <tbody>
+                      ${FINDINGS_HTML}
+                    </tbody>
+                  </table>
+                </div>
               </section>
 
               <section class="panel">
