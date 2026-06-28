@@ -1,19 +1,71 @@
-# TID-SecureCI
+<div align="center">
 
-Private reusable security pipeline for GitHub repositories.
+<img src="docs/assets/tid-secureci-banner.svg" alt="TID-SecureCI — Security Scanner" width="840">
 
-TID-SecureCI is built to sit in one private GitHub repo and scan other private app repos through a reusable workflow. The pipeline is tuned for broad coverage instead of one scanner pretending to do everything.
+<p><strong>One reusable workflow. Point it at any GitHub repo. Get a full security
+report — by email, in the Security tab, and as downloadable artifacts.</strong></p>
 
-## Scan Your App In Three Steps
+<p>
+  <img alt="Scanners" src="https://img.shields.io/badge/scanners-6-14532d">
+  <img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub%20Actions-reusable%20workflow-14532d">
+  <img alt="Report" src="https://img.shields.io/badge/report-HTML%20%2B%20Markdown%20%2B%20SARIF-14532d">
+  <img alt="SBOM" src="https://img.shields.io/badge/SBOM-SPDX%20%2B%20CycloneDX-14532d">
+</p>
 
-Anyone with access can point this at a GitHub app and get a full security report —
-emailed to them, plus alerts in the repo's Security tab.
+</div>
+
+---
+
+## What is TID-SecureCI?
+
+TID-SecureCI is a **reusable GitHub Actions security pipeline**. It lives in **one**
+repository and scans **other** repositories — your own apps or a third party's — by
+running six independent scanners in parallel and consolidating everything into a
+single, branded report. It is tuned for **broad coverage** instead of one scanner
+pretending to catch everything.
+
+## Who it's for
+
+- **App teams** that want continuous scanning on every push and PR without wiring up
+  six separate tools in every repo.
+- **Security & platform owners** who want one place to maintain scanning policy and
+  keep a copy of every report.
+- **Anyone vetting a third-party app** before adopting it — scan any public repo on
+  demand and read the report first.
+
+## What it scans
+
+| Scanner | Looks for |
+| --- | --- |
+| **Semgrep** | Insecure code patterns (SAST) + custom AI/ML guardrails |
+| **Gitleaks** | Secrets committed to git history |
+| **OSV-Scanner** | Known-vulnerable dependencies in manifests / lockfiles |
+| **Trivy** | Filesystem, dependency, secret, license, IaC, and optional image vulns |
+| **Checkov** | Infrastructure-as-Code misconfiguration |
+| **Syft (SBOM)** | A full software inventory (SPDX + CycloneDX) |
+| **Dependency review** | Risky dependency changes on pull requests |
+
+## What you get
+
+- 📧 an **emailed report** — branded HTML + Markdown with a **Detailed Findings**
+  table (every issue, with a link to review it in context) and the raw scanner
+  output attached;
+- 🔬 **code-scanning alerts** in the repo's **Security** tab (for repos you own);
+- 📦 **workflow artifacts** with the raw SARIF and SBOM files;
+- 📊 an at-a-glance **findings table** on the run's summary page.
+
+## Quickstart — scan your app in three steps
 
 1. **Add a caller workflow** to your app repo at `.github/workflows/scan.yml`
    (copy [examples/github/scan.yml](examples/github/scan.yml) and set
    `report_recipient` to your email):
 
    ```yaml
+   permissions:
+     contents: read
+     security-events: write
+     pull-requests: write
+     actions: read
    jobs:
      secureci:
        uses: TIDHQ-NETWORK/TID-SecureCI/.github/workflows/tid-secureci.yml@master
@@ -28,21 +80,14 @@ emailed to them, plus alerts in the repo's Security tab.
    emailed report, code-scanning alerts in **Security**, and downloadable
    artifacts.
 
+> **Vetting someone else's repo?** Use
+> [examples/github/scan-external.yml](examples/github/scan-external.yml) — an
+> on-demand workflow that scans any public `owner/repo` you type in and emails you
+> the report.
+
 New to this? The full walkthrough is in
-[docs/SCANNING-GUIDE.md](docs/SCANNING-GUIDE.md) — including scanning your other
-repos, **vetting a third-party app before you adopt it** (on-demand scan of any
-public repo via [examples/github/scan-external.yml](examples/github/scan-external.yml)),
-reading the report, and understanding vulnerabilities and severity.
-
-## What It Scans
-
-- Semgrep for multi-language SAST plus custom AI/ML guardrails
-- Gitleaks for committed secrets
-- OSV-Scanner for vulnerable manifests and lockfiles across major ecosystems
-- Trivy for filesystem, dependency, secret, license, IaC, and optional container image scanning
-- Checkov for Terraform, Kubernetes, Helm, Dockerfile, GitHub Actions, ARM, Bicep, and CloudFormation
-- Syft SBOM generation through Anchore's SBOM action
-- GitHub dependency review on pull requests
+[docs/SCANNING-GUIDE.md](docs/SCANNING-GUIDE.md) — scanning your other repos,
+vetting third-party apps, reading the report, and understanding severity.
 
 ## Best Private GitHub Setup
 

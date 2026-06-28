@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" role="img" aria-label="TID-SecureCI Security Scanner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a2e1a"/>
+      <stop offset="0.55" stop-color="#0f3d24"/>
+      <stop offset="1" stop-color="#14532d"/>
+    </linearGradient>
+    <linearGradient id="check" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#86efac"/>
+      <stop offset="1" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="320" rx="28" fill="url(#bg)"/>
+  <rect x="6" y="6" width="1268" height="308" rx="24" fill="none" stroke="#1f6b3b" stroke-width="2" opacity="0.6"/>
+
+  <!-- emblem: shield with check -->
+  <g transform="translate(120,72)">
+    <path d="M78 0 L156 30 V86 C156 138 120 170 78 184 C36 170 0 138 0 86 V30 Z"
+          fill="#0b3d22" stroke="#bbf7d0" stroke-width="6"/>
+    <path d="M44 92 l24 24 l46 -56" fill="none" stroke="url(#check)"
+          stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="332" y="140" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="92" font-weight="800" fill="#f3fbf4" letter-spacing="-2">TID-SecureCI</text>
+  <text x="336" y="194" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="30" font-weight="700" fill="#86efac" letter-spacing="10">SECURITY SCANNER</text>
+  <text x="336" y="240" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="25" font-weight="400" fill="#cdebd6">Multi-scanner CI security pipeline for GitHub repositories</text>
+</svg>
