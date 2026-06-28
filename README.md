@@ -28,9 +28,11 @@ emailed to them, plus alerts in the repo's Security tab.
    emailed report, code-scanning alerts in **Security**, and downloadable
    artifacts.
 
-New to this? The full walkthrough — including how to scan another repo, read the
-report, and understand vulnerabilities and severity — is in
-[docs/SCANNING-GUIDE.md](docs/SCANNING-GUIDE.md).
+New to this? The full walkthrough is in
+[docs/SCANNING-GUIDE.md](docs/SCANNING-GUIDE.md) — including scanning your other
+repos, **vetting a third-party app before you adopt it** (on-demand scan of any
+public repo via [examples/github/scan-external.yml](examples/github/scan-external.yml)),
+reading the report, and understanding vulnerabilities and severity.
 
 ## What It Scans
 

@@ -1,0 +1,37 @@
+# On-demand security scan of ANY GitHub repo (e.g. to vet a third-party app
+# before you adopt it). Put this in a repo you own that has the SMTP secrets,
+# then run it from the Actions tab and type the repo you want to scan.
+name: Scan External Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: "owner/repo to scan (e.g. some-org/some-app)"
+        required: true
+      target_ref:
+        description: "branch, tag, or SHA (blank = default branch)"
+        required: false
+        default: ""
+      report_recipient:
+        description: "email address for the report (blank = report_owner secret)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    uses: TIDHQ-NETWORK/TID-SecureCI/.github/workflows/tid-secureci.yml@master
+    secrets: inherit
+    with:
+      target_repository: ${{ inputs.target_repository }}
+      target_ref: ${{ inputs.target_ref }}
+      enforce: false        # vetting someone else's code: report, never block
+      report_recipient: ${{ inputs.report_recipient }}
+      report_name: External Repo Security Review
+    # For a PRIVATE target you also need a token that can read it:
+    # secrets:
+    #   checkout_token: ${{ secrets.CROSS_REPO_READ_TOKEN }}

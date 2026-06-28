@@ -155,21 +155,55 @@ The scan runs automatically on the triggers you configured:
 | At-a-glance findings table | the workflow run's **Summary** page |
 | Dependency-review feedback | inline on the **pull request** |
 
-## Scanning a different repository
+## Scanning your other repos
 
-To scan a repo other than the one running the workflow, pass the target and a
-token that can read it:
+For each additional app you own, do the same as Step 2: drop a
+`.github/workflows/scan.yml` caller into that repo and make sure it can read the
+email secrets (org-level secrets cover every repo at once; for a personal
+account or a public repo, set them per repo — see the note in
+[EMAIL-SETUP.md](EMAIL-SETUP.md)). Each repo then scans and reports itself.
+
+## Scanning a different repository (remote scan)
+
+To scan a repo *other than* the one running the workflow, pass the target:
 
 ```yaml
     with:
       target_repository: TIDHQ-NETWORK/some-other-app
-      target_ref: main
+      target_ref: main            # optional; blank = default branch
     secrets:
-      checkout_token: ${{ secrets.CROSS_REPO_READ_TOKEN }}
+      checkout_token: ${{ secrets.CROSS_REPO_READ_TOKEN }}   # only for PRIVATE targets
 ```
 
-`checkout_token` should be a fine-grained PAT or app token with **read** access
-to the target repo's contents. Without it, the scan can only read the caller repo.
+- **Public target** → no token needed; the default `GITHUB_TOKEN` can read any
+  public repo.
+- **Private target** → pass `checkout_token`, a fine-grained PAT or app token
+  with **read** access to that repo's contents.
+
+## Vetting a third-party app before you use it
+
+A common use: you're considering an open-source GitHub app/library and want a
+security read on it *before* you adopt it. You don't own it, but if it's public
+you can still scan it on demand.
+
+1. In a repo you own (one that has the email secrets), add the ready-made
+   [examples/github/scan-external.yml](../examples/github/scan-external.yml). It
+   uses `workflow_dispatch` with an input for the target repo.
+2. Go to **Actions -> Scan External Repo -> Run workflow**, type the
+   `owner/repo` you want to vet, and run it.
+3. You get the same consolidated report by email, plus artifacts.
+
+Two things to know when scanning a repo you don't own:
+
+- **Results don't post to the *target's* Security tab** — you have no write
+  access there. Findings come via the **emailed report**, the **workflow
+  artifacts** (raw SARIF + SBOM), and the run summary in *your* repo.
+- **Keep `enforce: false`** — you're assessing someone else's code, not gating
+  your own build, so there's nothing to "block."
+
+This turns the pipeline into a quick due-diligence tool: point it at a candidate
+dependency or app, read the Findings Snapshot and SBOM, and decide whether the
+code is something you want to depend on.
 
 ## Understanding the scanners
 
