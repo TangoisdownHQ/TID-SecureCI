@@ -157,7 +157,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Check out target repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ needs.prepare.outputs.repository }}
           ref: ${{ needs.prepare.outputs.ref }}
@@ -181,7 +181,7 @@ jobs:
       security-events: write
     steps:
       - name: Check out target repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ needs.prepare.outputs.repository }}
           ref: ${{ needs.prepare.outputs.ref }}
@@ -343,7 +343,7 @@ jobs:
       security-events: write
     steps:
       - name: Check out target repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ needs.prepare.outputs.repository }}
           ref: ${{ needs.prepare.outputs.ref }}
@@ -416,7 +416,7 @@ jobs:
       security-events: write
     steps:
       - name: Check out target repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ needs.prepare.outputs.repository }}
           ref: ${{ needs.prepare.outputs.ref }}
@@ -543,7 +543,7 @@ jobs:
       actions: read
     steps:
       - name: Check out target repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ needs.prepare.outputs.repository }}
           ref: ${{ needs.prepare.outputs.ref }}
